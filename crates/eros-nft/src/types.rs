@@ -103,3 +103,18 @@ pub struct Compliance {
     pub core: ComplianceCore,
     pub regional: Vec<ComplianceRegional>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CipherAlg {
+    #[serde(rename = "AES-256-GCM")]
+    AesGcm256,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptCiphertextRef {
+    pub kms_key_ref: String,
+    pub ciphertext_uri: String,
+    pub ciphertext_sha256: String,
+    pub alg: CipherAlg,
+    pub aad: String,
+}
