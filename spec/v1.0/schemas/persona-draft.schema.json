@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eros.nft/spec/v1.0/persona-draft.schema.json",
+  "title": "PersonaDraft",
+  "description": "Mint-time input document. Plaintext-bearing; pipelines must encrypt and discard plaintext before producing a PersonaManifest.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "spec_version",
+    "creator",
+    "name",
+    "tagline",
+    "description",
+    "greeting",
+    "definition_dialogues",
+    "system_prompt",
+    "avatar_source",
+    "behavior",
+    "compliance"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "spec_version": { "const": "1.0" },
+    "creator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wallet_address": {
+          "type": "string",
+          "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+        },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "tagline": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "greeting": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "definition_dialogues": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["user", "persona"],
+        "properties": {
+          "user":    { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "persona": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
+      }
+    },
+    "system_prompt": { "type": "string", "minLength": 1, "maxLength": 32000 },
+    "avatar_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "provenance", "provenance_attestation"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "pattern": "^(data:|https?:|ar:|ipfs:)"
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["self_created", "ai_generated", "licensed"]
+        },
+        "provenance_attestation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "behavior": { "$ref": "#/$defs/Behavior" },
+    "compliance": { "$ref": "#/$defs/Compliance" }
+  },
+  "$defs": {
+    "TipPersonality": {
+      "type": "string",
+      "enum": [
+        "slow_warm", "tsundere", "dominant", "warm_safe", "tough_love",
+        "flirty", "calm_professional", "playful_chaotic", "nostalgic",
+        "dramatic", "warm_loud", "sensual", "playful", "default"
+      ]
+    },
+    "AffinityPriors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "warmth":   { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+        "trust":    { "type": "number", "minimum":  0.0, "maximum": 1.0 },
+        "intrigue": { "type": "number", "minimum":  0.0, "maximum": 1.0 },
+        "intimacy": { "type": "number", "minimum":  0.0, "maximum": 1.0 },
+        "patience": { "type": "number", "minimum":  0.0, "maximum": 1.0 },
+        "tension":  { "type": "number", "minimum":  0.0, "maximum": 1.0 }
+      }
+    },
+    "Behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tip_personality"],
+      "properties": {
+        "tip_personality": { "$ref": "#/$defs/TipPersonality" },
+        "affinity_priors": { "$ref": "#/$defs/AffinityPriors" }
+      }
+    },
+    "ComplianceCore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_nsfw",
+        "contains_real_person_likeness",
+        "uses_third_party_ip",
+        "real_person_disclaimer_acknowledged",
+        "third_party_ip_disclaimer_acknowledged",
+        "creator_acknowledgments"
+      ],
+      "properties": {
+        "is_nsfw":                                 { "type": "boolean" },
+        "contains_real_person_likeness":           { "type": "boolean" },
+        "uses_third_party_ip":                     { "type": "boolean" },
+        "real_person_disclaimer_acknowledged":     { "type": "boolean" },
+        "third_party_ip_disclaimer_acknowledged":  { "type": "boolean" },
+        "creator_acknowledgments": {
+          "type": "array",
+          "uniqueItems": true,
+          "contains": { "const": "no_self_harm_encouragement" },
+          "items": {
+            "type": "string",
+            "enum": ["no_self_harm_encouragement", "no_csam", "no_minor_sexualization"]
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "contains_real_person_likeness": { "const": true } } },
+          "then": { "properties": { "real_person_disclaimer_acknowledged": { "const": true } } }
+        },
+        {
+          "if":   { "properties": { "uses_third_party_ip": { "const": true } } },
+          "then": { "properties": { "third_party_ip_disclaimer_acknowledged": { "const": true } } }
+        }
+      ]
+    },
+    "ComplianceRegional": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["region", "pack_id", "pack_version", "fields"],
+      "properties": {
+        "region":       { "type": "string", "minLength": 1, "maxLength": 64 },
+        "pack_id":      { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pack_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "fields":       { "type": "object" }
+      }
+    },
+    "Compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core", "regional"],
+      "properties": {
+        "core":     { "$ref": "#/$defs/ComplianceCore" },
+        "regional": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ComplianceRegional" }
+        }
+      }
+    }
+  }
+}
