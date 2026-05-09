@@ -57,7 +57,7 @@ fn unknown_tip_personality_is_rejected() {
 fn manifest_aad_mismatch_is_rejected() {
     let v = json!({
         "spec_version": "1.0",
-        "persona_id": "ern:1.0:01HXY0000000000000000000000",
+        "persona_id": "ern:1.0:01HXY000000000000000000000",
         "minted_at": "2026-05-09T12:34:56Z",
         "name": "Test", "tagline": "tag", "description": "desc", "greeting": "hi",
         "avatar": {
@@ -70,7 +70,7 @@ fn manifest_aad_mismatch_is_rejected() {
             "ciphertext_uri": "s3://x/y",
             "ciphertext_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "alg": "AES-256-GCM",
-            "aad": "ern:1.0:01HXY1111111111111111111111"
+            "aad": "ern:1.0:01HXY111111111111111111111"
         },
         "behavior": { "tip_personality": "default" },
         "compliance": {
@@ -107,7 +107,7 @@ fn manifest_invalid_persona_id_pattern_is_rejected() {
             "ciphertext_uri": "s3://x/y",
             "ciphertext_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "alg": "AES-256-GCM",
-            "aad": "ern:1.0:01HXY0000000000000000000000"
+            "aad": "ern:1.0:01HXY000000000000000000000"
         },
         "behavior": { "tip_personality": "default" },
         "compliance": {

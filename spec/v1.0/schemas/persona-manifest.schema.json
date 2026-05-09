@@ -23,7 +23,7 @@
     "spec_version": { "const": "1.0" },
     "persona_id": {
       "type": "string",
-      "pattern": "^ern:1\\.0:[0-9A-HJKMNP-TV-Z]{26,27}$"
+      "pattern": "^ern:1\\.0:[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "minted_at": {
       "type": "string",
@@ -72,7 +72,7 @@
         "alg": { "const": "AES-256-GCM" },
         "aad": {
           "type": "string",
-          "pattern": "^ern:1\\.0:[0-9A-HJKMNP-TV-Z]{26,27}$"
+          "pattern": "^ern:1\\.0:[0-9A-HJKMNP-TV-Z]{26}$"
         }
       }
     },

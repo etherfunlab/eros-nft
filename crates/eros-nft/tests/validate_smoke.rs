@@ -34,7 +34,7 @@ fn minimal_draft() -> PersonaDraft {
 fn minimal_manifest() -> PersonaManifest {
     serde_json::from_value(json!({
         "spec_version": "1.0",
-        "persona_id": "ern:1.0:01HXY0000000000000000000000",
+        "persona_id": "ern:1.0:01HXY000000000000000000000",
         "minted_at": "2026-05-09T12:34:56Z",
         "name": "Test",
         "tagline": "tag",
@@ -50,7 +50,7 @@ fn minimal_manifest() -> PersonaManifest {
             "ciphertext_uri": "s3://x/y",
             "ciphertext_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "alg": "AES-256-GCM",
-            "aad": "ern:1.0:01HXY0000000000000000000000"
+            "aad": "ern:1.0:01HXY000000000000000000000"
         },
         "behavior": { "tip_personality": "default" },
         "compliance": {
