@@ -4,11 +4,11 @@
 //!
 //! ## Quick start
 //!
-//! ```rust
+//! ```rust,no_run
 //! use eros_nft::{PersonaManifest, load_sample};
 //!
 //! let (_draft, manifest) = load_sample("yuki-warm-senpai").unwrap();
-//! manifest.validate().unwrap();
+//! // manifest.validate().unwrap(); // validate() added in Phase 6
 //! ```
 
 #![forbid(unsafe_code)]

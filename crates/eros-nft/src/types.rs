@@ -118,3 +118,37 @@ pub struct PromptCiphertextRef {
     pub alg: CipherAlg,
     pub aad: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PersonaDraft {
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    pub spec_version: String,
+    pub creator: Creator,
+    pub name: String,
+    pub tagline: String,
+    pub description: String,
+    pub greeting: String,
+    pub definition_dialogues: Vec<DialogueExample>,
+    pub system_prompt: String,
+    pub avatar_source: AvatarSource,
+    pub behavior: Behavior,
+    pub compliance: Compliance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PersonaManifest {
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    pub spec_version: String,
+    pub persona_id: String,
+    pub minted_at: String,
+    pub name: String,
+    pub tagline: String,
+    pub description: String,
+    pub greeting: String,
+    pub avatar: AvatarRef,
+    pub prompt_ciphertext_ref: PromptCiphertextRef,
+    pub behavior: Behavior,
+    pub compliance: Compliance,
+}
