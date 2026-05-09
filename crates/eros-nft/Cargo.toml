@@ -11,6 +11,15 @@ documentation = "https://docs.rs/eros-nft"
 readme = "README.md"
 keywords = ["solana", "nft", "persona", "cnft", "spec"]
 categories = ["data-structures", "command-line-utilities"]
+include = [
+    "src/**/*.rs",
+    "tests/**/*.rs",
+    "README.md",
+    "spec/v1.0/schemas/*.json",
+    "samples/persona-*/draft.json",
+    "samples/persona-*/manifest.json",
+    "samples/persona-*/README.md",
+]
 
 [lib]
 name = "eros_nft"

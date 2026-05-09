@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::types::{PersonaDraft, PersonaManifest};
 
-static SAMPLES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../samples");
+static SAMPLES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/samples");
 
 /// List the slugs of all bundled samples (e.g. `"yuki-warm-senpai"`).
 pub fn list_samples() -> Vec<&'static str> {
