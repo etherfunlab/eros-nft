@@ -79,3 +79,27 @@ pub struct Behavior {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affinity_priors: Option<AffinityPriors>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComplianceCore {
+    pub is_nsfw: bool,
+    pub contains_real_person_likeness: bool,
+    pub uses_third_party_ip: bool,
+    pub real_person_disclaimer_acknowledged: bool,
+    pub third_party_ip_disclaimer_acknowledged: bool,
+    pub creator_acknowledgments: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ComplianceRegional {
+    pub region: String,
+    pub pack_id: String,
+    pub pack_version: String,
+    pub fields: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Compliance {
+    pub core: ComplianceCore,
+    pub regional: Vec<ComplianceRegional>,
+}
