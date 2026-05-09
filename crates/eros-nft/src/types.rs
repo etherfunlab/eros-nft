@@ -37,3 +37,45 @@ pub struct AvatarRef {
     pub sha256: String,
     pub provenance: AvatarProvenance,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TipPersonality {
+    SlowWarm,
+    Tsundere,
+    Dominant,
+    WarmSafe,
+    ToughLove,
+    Flirty,
+    CalmProfessional,
+    PlayfulChaotic,
+    Nostalgic,
+    Dramatic,
+    WarmLoud,
+    Sensual,
+    Playful,
+    Default,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+pub struct AffinityPriors {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warmth: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intrigue: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intimacy: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patience: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tension: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Behavior {
+    pub tip_personality: TipPersonality,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affinity_priors: Option<AffinityPriors>,
+}
