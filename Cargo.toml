@@ -1,0 +1,9 @@
+[workspace]
+resolver = "3"
+members = ["crates/eros-nft"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/etherfunlab/eros-nft"
