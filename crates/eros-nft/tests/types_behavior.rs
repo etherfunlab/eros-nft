@@ -21,7 +21,7 @@ fn affinity_priors_partial_round_trip() {
     let a: AffinityPriors = serde_json::from_value(v).unwrap();
     assert_eq!(a.warmth, Some(0.2));
     assert_eq!(a.intrigue, None);
-    let back = serde_json::to_value(&a).unwrap();
+    let back = serde_json::to_value(a).unwrap();
     assert_eq!(back, json!({ "warmth": 0.2, "trust": 0.1 }));
 }
 
