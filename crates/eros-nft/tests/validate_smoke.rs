@@ -74,5 +74,7 @@ fn minimal_draft_validates() {
 
 #[test]
 fn minimal_manifest_validates() {
-    minimal_manifest().validate().expect("valid Manifest must pass");
+    minimal_manifest()
+        .validate()
+        .expect("valid Manifest must pass");
 }

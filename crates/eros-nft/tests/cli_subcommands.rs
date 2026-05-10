@@ -29,7 +29,15 @@ fn validate_a_bundled_sample_via_path() {
     let path = dir.path().join("manifest.json");
     let (_, m) = eros_nft::load_sample("yuki-warm-senpai").unwrap();
     let mut f = std::fs::File::create(&path).unwrap();
-    f.write_all(serde_json::to_string_pretty(&m).unwrap().as_bytes()).unwrap();
-    let out = bin().args(["validate", path.to_str().unwrap()]).output().unwrap();
-    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    f.write_all(serde_json::to_string_pretty(&m).unwrap().as_bytes())
+        .unwrap();
+    let out = bin()
+        .args(["validate", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

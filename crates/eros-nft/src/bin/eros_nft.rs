@@ -2,16 +2,20 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use eros_nft::{
-    json_schema_draft, json_schema_manifest, list_samples, load_sample,
-    PersonaDraft, PersonaManifest,
+    PersonaDraft, PersonaManifest, json_schema_draft, json_schema_manifest, list_samples,
+    load_sample,
 };
 
 #[derive(Parser)]
-#[command(name = "eros-nft", version, about = "Validate and inspect eros-nft documents.")]
+#[command(
+    name = "eros-nft",
+    version,
+    about = "Validate and inspect eros-nft documents."
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -66,20 +70,26 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Validate { path } => cmd_validate(path),
-        Cmd::Schema { action: SchemaAction::Export { kind } } => {
+        Cmd::Schema {
+            action: SchemaAction::Export { kind },
+        } => {
             match kind {
                 SchemaKind::Draft => println!("{}", json_schema_draft()),
                 SchemaKind::Manifest => println!("{}", json_schema_manifest()),
             }
             Ok(())
         }
-        Cmd::Sample { action: SampleAction::List } => {
+        Cmd::Sample {
+            action: SampleAction::List,
+        } => {
             for s in list_samples() {
                 println!("{s}");
             }
             Ok(())
         }
-        Cmd::Sample { action: SampleAction::Show { slug } } => {
+        Cmd::Sample {
+            action: SampleAction::Show { slug },
+        } => {
             let (draft, manifest) =
                 load_sample(&slug).ok_or_else(|| anyhow!("unknown sample: {slug}"))?;
             println!("=== draft.json ===");
@@ -93,8 +103,8 @@ fn main() -> Result<()> {
 
 fn cmd_validate(path: PathBuf) -> Result<()> {
     let bytes = std::fs::read(&path).with_context(|| format!("reading {path:?}"))?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)
-        .with_context(|| format!("parsing JSON from {path:?}"))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).with_context(|| format!("parsing JSON from {path:?}"))?;
 
     // Auto-detect: Manifest has `persona_id`; Draft does not.
     if value.get("persona_id").is_some() {

@@ -4,7 +4,7 @@
 //! The bundled sample names are stable; new samples may be added in minor crate
 //! versions but never removed in a patch release.
 
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use serde_json::Value;
 
 use crate::types::{PersonaDraft, PersonaManifest};
@@ -15,12 +15,7 @@ static SAMPLES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/samples");
 pub fn list_samples() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = SAMPLES_DIR
         .dirs()
-        .filter_map(|d| {
-            d.path()
-                .file_name()?
-                .to_str()?
-                .strip_prefix("persona-")
-        })
+        .filter_map(|d| d.path().file_name()?.to_str()?.strip_prefix("persona-"))
         .collect();
     out.sort_unstable();
     out

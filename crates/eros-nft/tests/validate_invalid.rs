@@ -1,5 +1,5 @@
 use eros_nft::{PersonaDraft, PersonaManifest};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn good_draft() -> Value {
     json!({
@@ -31,7 +31,8 @@ fn good_draft() -> Value {
 #[test]
 fn missing_acknowledgment_is_rejected() {
     let mut v = good_draft();
-    v["compliance"]["core"]["creator_acknowledgments"] = json!(["no_self_harm_encouragement", "no_csam"]);
+    v["compliance"]["core"]["creator_acknowledgments"] =
+        json!(["no_self_harm_encouragement", "no_csam"]);
     let d: PersonaDraft = serde_json::from_value(v).unwrap();
     assert!(d.validate().is_err());
 }

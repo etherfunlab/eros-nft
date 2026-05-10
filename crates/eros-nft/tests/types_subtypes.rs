@@ -5,7 +5,10 @@ use serde_json::json;
 fn creator_round_trips() {
     let v = json!({ "wallet_address": "Es5b8L7L8z3oH4z3yWv2K9mN6oR5sT7uV9wX1yZ2aB3c", "display_name": "Enrique" });
     let c: Creator = serde_json::from_value(v.clone()).unwrap();
-    assert_eq!(c.wallet_address.as_deref(), Some("Es5b8L7L8z3oH4z3yWv2K9mN6oR5sT7uV9wX1yZ2aB3c"));
+    assert_eq!(
+        c.wallet_address.as_deref(),
+        Some("Es5b8L7L8z3oH4z3yWv2K9mN6oR5sT7uV9wX1yZ2aB3c")
+    );
     let back = serde_json::to_value(&c).unwrap();
     assert_eq!(back, v);
 }

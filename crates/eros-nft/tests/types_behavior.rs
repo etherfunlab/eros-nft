@@ -3,8 +3,14 @@ use serde_json::json;
 
 #[test]
 fn tip_personality_serializes_snake_case() {
-    assert_eq!(serde_json::to_value(TipPersonality::SlowWarm).unwrap(), json!("slow_warm"));
-    assert_eq!(serde_json::to_value(TipPersonality::CalmProfessional).unwrap(), json!("calm_professional"));
+    assert_eq!(
+        serde_json::to_value(TipPersonality::SlowWarm).unwrap(),
+        json!("slow_warm")
+    );
+    assert_eq!(
+        serde_json::to_value(TipPersonality::CalmProfessional).unwrap(),
+        json!("calm_professional")
+    );
     let p: TipPersonality = serde_json::from_value(json!("warm_loud")).unwrap();
     assert_eq!(p, TipPersonality::WarmLoud);
 }

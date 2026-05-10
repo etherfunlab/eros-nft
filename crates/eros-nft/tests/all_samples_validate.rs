@@ -25,9 +25,13 @@ fn fifteen_samples_present_and_valid() {
     assert_eq!(listed, EXPECTED_SLUGS);
 
     for slug in EXPECTED_SLUGS {
-        let (draft, manifest) = load_sample(slug)
-            .unwrap_or_else(|| panic!("missing sample: {slug}"));
-        draft.validate().unwrap_or_else(|e| panic!("draft for {slug} invalid: {e}"));
-        manifest.validate().unwrap_or_else(|e| panic!("manifest for {slug} invalid: {e}"));
+        let (draft, manifest) =
+            load_sample(slug).unwrap_or_else(|| panic!("missing sample: {slug}"));
+        draft
+            .validate()
+            .unwrap_or_else(|e| panic!("draft for {slug} invalid: {e}"));
+        manifest
+            .validate()
+            .unwrap_or_else(|e| panic!("manifest for {slug} invalid: {e}"));
     }
 }

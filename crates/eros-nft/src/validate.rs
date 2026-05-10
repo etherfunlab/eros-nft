@@ -12,8 +12,8 @@ use crate::types::{PersonaDraft, PersonaManifest};
 fn draft_validator() -> &'static Validator {
     static V: OnceLock<Validator> = OnceLock::new();
     V.get_or_init(|| {
-        let schema: Value = serde_json::from_str(json_schema_draft())
-            .expect("embedded Draft schema is valid JSON");
+        let schema: Value =
+            serde_json::from_str(json_schema_draft()).expect("embedded Draft schema is valid JSON");
         // The Manifest schema $refs into the Draft schema; for Draft alone we don't
         // need the Manifest doc, but we register it as a peer for symmetry.
         Validator::options()
@@ -28,8 +28,8 @@ fn manifest_validator() -> &'static Validator {
     V.get_or_init(|| {
         let manifest_schema: Value = serde_json::from_str(json_schema_manifest())
             .expect("embedded Manifest schema is valid JSON");
-        let draft_schema: Value = serde_json::from_str(json_schema_draft())
-            .expect("embedded Draft schema is valid JSON");
+        let draft_schema: Value =
+            serde_json::from_str(json_schema_draft()).expect("embedded Draft schema is valid JSON");
         Validator::options()
             .with_draft(jsonschema::Draft::Draft202012)
             .with_resource(
@@ -56,7 +56,8 @@ impl PersonaDraft {
     /// Validate this `PersonaDraft` against the v1.0 JSON Schema and the
     /// spec's cross-field invariants.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let json = serde_json::to_value(self).map_err(|e| ValidationError::InvalidJson(e.to_string()))?;
+        let json =
+            serde_json::to_value(self).map_err(|e| ValidationError::InvalidJson(e.to_string()))?;
         validate_with(draft_validator(), &json)
     }
 }
@@ -65,7 +66,8 @@ impl PersonaManifest {
     /// Validate this `PersonaManifest` against the v1.0 JSON Schema and the
     /// spec's cross-field invariants.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let json = serde_json::to_value(self).map_err(|e| ValidationError::InvalidJson(e.to_string()))?;
+        let json =
+            serde_json::to_value(self).map_err(|e| ValidationError::InvalidJson(e.to_string()))?;
         validate_with(manifest_validator(), &json)?;
         // Cross-field invariant: aad must equal persona_id.
         if self.prompt_ciphertext_ref.aad != self.persona_id {

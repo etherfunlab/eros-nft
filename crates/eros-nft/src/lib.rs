@@ -15,8 +15,8 @@
 #![deny(rust_2018_idioms)]
 
 pub mod error;
-pub mod schema;
 pub mod sample;
+pub mod schema;
 pub mod types;
 pub mod validate;
 
