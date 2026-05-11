@@ -4,7 +4,9 @@ All notable changes to the `eros-nft` crate are documented here. The crate
 follows [SemVer](https://semver.org/). The spec is versioned independently
 under `spec/CHANGELOG.md`.
 
-## [Unreleased]
+## [0.2.0] — 2026-05-12
+
+First crates.io release. Supersedes the v0.1.0 tag (never published).
 
 ### Changed (breaking)
 

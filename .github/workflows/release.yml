@@ -7,10 +7,6 @@ on:
 
 jobs:
   publish-crate:
-    # GATED: crates.io publish disabled until we explicitly opt in.
-    # Re-enable by changing this `if` to `if: true` (or removing it) once the
-    # CRATES_IO_TOKEN secret is set on the repo and we're ready to release.
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
