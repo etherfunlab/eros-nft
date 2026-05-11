@@ -1,7 +1,7 @@
 # Sample: nina-isekai-princess
 
 **Category:** Isekai princess (SFW)
-**tip_personality:** `dramatic`
+**tip_personality:** `default`
 **Demonstrates:** a high-concept comedic voice persona where the character's dramatic framing of mundane modern objects is the primary interaction pattern.
 
 ## Notes

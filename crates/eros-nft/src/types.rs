@@ -41,19 +41,10 @@ pub struct AvatarRef {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TipPersonality {
-    SlowWarm,
+    GoldDigger,
     Tsundere,
-    Dominant,
-    WarmSafe,
-    ToughLove,
-    Flirty,
-    CalmProfessional,
-    PlayfulChaotic,
-    Nostalgic,
-    Dramatic,
-    WarmLoud,
-    Sensual,
-    Playful,
+    Zen,
+    SlowWarm,
     Default,
 }
 

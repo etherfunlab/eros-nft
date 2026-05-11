@@ -6,6 +6,20 @@ under `spec/CHANGELOG.md`.
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- `TipPersonality` enum is realigned with the values the reference engine
+  (`eros-engine`) actually implements: `gold_digger`, `tsundere`, `zen`,
+  `slow_warm`, `default`. The previous v0.1.0 set listed 14 values, of which
+  12 silently fell back to the engine's default gift-reaction style, and two
+  engine-supported values (`gold_digger`, `zen`) were not expressible at all.
+  Old values (`dominant`, `warm_safe`, `tough_love`, `flirty`,
+  `calm_professional`, `playful_chaotic`, `nostalgic`, `dramatic`, `warm_loud`,
+  `sensual`, `playful`) now fail schema validation; remap to the closest
+  supported value or `default`.
+- Bundled samples remapped accordingly. The persona character descriptions
+  are unchanged; only the engine-routing field moves.
+
 ### Build
 
 - `crates/eros-nft/spec` and `crates/eros-nft/samples` are now symlinks to the

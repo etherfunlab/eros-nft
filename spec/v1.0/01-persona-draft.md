@@ -59,9 +59,11 @@ pipeline; the requirements above describe the realizable target.
 
 ## Tip Personality enum
 
-`slow_warm`, `tsundere`, `dominant`, `warm_safe`, `tough_love`, `flirty`,
-`calm_professional`, `playful_chaotic`, `nostalgic`, `dramatic`, `warm_loud`,
-`sensual`, `playful`, `default`.
+`gold_digger`, `tsundere`, `zen`, `slow_warm`, `default`.
+
+Each value selects a deterministic gift-reaction style and prompt directive in
+the reference engine (`eros-engine`). `default` is the explicit fallback —
+unrecognised values do not validate.
 
 ## Example
 

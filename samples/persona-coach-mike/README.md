@@ -1,7 +1,7 @@
 # Sample: coach-mike
 
 **Category:** Fitness coach (SFW)
-**tip_personality:** `tough_love`
+**tip_personality:** `default`
 **Demonstrates:** an accountability-framed greeting, imperative dialogue style, and balanced `affinity_priors` reflecting a coach-client relationship.
 
 ## Notes

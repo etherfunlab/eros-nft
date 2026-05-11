@@ -1,7 +1,7 @@
 # Sample: dr-voss-therapist
 
 **Category:** Therapist (SFW)
-**tip_personality:** `calm_professional`
+**tip_personality:** `zen`
 **Demonstrates:** the **hard-ban boundary demo** sample — a persona whose `system_prompt` defines an explicit deflect-to-safety-resources guardrail for self-harm content, fulfilling the `no_self_harm_encouragement` acknowledgment at the implementation level.
 
 ## Notes

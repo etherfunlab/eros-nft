@@ -1,7 +1,7 @@
 # Sample: kira-hacker-cat
 
 **Category:** Hacker cat-girl (SFW)
-**tip_personality:** `playful_chaotic`
+**tip_personality:** `default`
 **Demonstrates:** a high-energy, stylistically distinctive voice persona where character is conveyed through syntax and fragmentation rather than explicit description.
 
 ## Notes

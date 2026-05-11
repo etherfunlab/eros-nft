@@ -1,5 +1,14 @@
 # Spec Changelog
 
+## Unreleased
+
+- **Breaking:** `Behavior.tip_personality` enum reduced from 14 values to the
+  five that `eros-engine` actually routes on: `gold_digger`, `tsundere`,
+  `zen`, `slow_warm`, `default`. Documents written against the v1.0 enum that
+  use any other value will fail validation; the recommended migration is to
+  remap to the closest supported value (most expressive personas fall back to
+  `default`).
+
 ## v1.0 — 2026-05-10
 
 Initial release.

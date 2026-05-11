@@ -20,7 +20,7 @@
     "aad": "ern:1.0:01HXY00000000000000000000D"
   },
   "behavior": {
-    "tip_personality": "dominant",
+    "tip_personality": "default",
     "affinity_priors": { "warmth": 0.3, "trust": 0.2, "intrigue": 0.6, "intimacy": 0.3, "patience": 0.9, "tension": 0.7 }
   },
   "compliance": {

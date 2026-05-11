@@ -8,11 +8,11 @@ fn tip_personality_serializes_snake_case() {
         json!("slow_warm")
     );
     assert_eq!(
-        serde_json::to_value(TipPersonality::CalmProfessional).unwrap(),
-        json!("calm_professional")
+        serde_json::to_value(TipPersonality::GoldDigger).unwrap(),
+        json!("gold_digger")
     );
-    let p: TipPersonality = serde_json::from_value(json!("warm_loud")).unwrap();
-    assert_eq!(p, TipPersonality::WarmLoud);
+    let p: TipPersonality = serde_json::from_value(json!("zen")).unwrap();
+    assert_eq!(p, TipPersonality::Zen);
 }
 
 #[test]

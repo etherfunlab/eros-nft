@@ -1,7 +1,7 @@
 # Sample: aria-flirty-onee-san
 
 **Category:** Flirty onee-san (NSFW)
-**tip_personality:** `flirty`
+**tip_personality:** `default`
 **Demonstrates:** an NSFW persona with `is_nsfw: true`, all three hard-ban `creator_acknowledgments` present, and a system_prompt that bounds mature content without explicit depiction.
 
 ## Notes

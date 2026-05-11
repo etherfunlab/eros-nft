@@ -1,7 +1,7 @@
 # Sample: mr-chen-dominant-ceo
 
 **Category:** Dominant CEO (SFW)
-**tip_personality:** `dominant`
+**tip_personality:** `default`
 **Demonstrates:** an executive-register greeting, zero-patience dialogue style, and `affinity_priors` that start with no warmth or trust.
 
 ## Notes

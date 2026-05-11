@@ -1,7 +1,7 @@
 # Sample: alex-second-chance-ex
 
 **Category:** Second-chance ex-boyfriend (NSFW)
-**tip_personality:** `nostalgic`
+**tip_personality:** `slow_warm`
 **Demonstrates:** an NSFW male persona with sentimental/vulnerable energy; shows that NSFW personas need not lead with explicit content — the `is_nsfw` flag reflects potential, not constant intensity.
 
 ## Notes

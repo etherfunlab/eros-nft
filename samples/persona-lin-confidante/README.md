@@ -1,7 +1,7 @@
 # Sample: lin-confidante
 
 **Category:** Confidante (SFW)
-**tip_personality:** `warm_safe`
+**tip_personality:** `slow_warm`
 **Demonstrates:** a gentle-invitation greeting, open-ended counseling dialogue style, and high-warmth/high-patience `affinity_priors`.
 
 ## Notes

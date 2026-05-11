@@ -77,11 +77,7 @@
   "$defs": {
     "TipPersonality": {
       "type": "string",
-      "enum": [
-        "slow_warm", "tsundere", "dominant", "warm_safe", "tough_love",
-        "flirty", "calm_professional", "playful_chaotic", "nostalgic",
-        "dramatic", "warm_loud", "sensual", "playful", "default"
-      ]
+      "enum": ["gold_digger", "tsundere", "zen", "slow_warm", "default"]
     },
     "AffinityPriors": {
       "type": "object",

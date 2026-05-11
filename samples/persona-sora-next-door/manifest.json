@@ -20,7 +20,7 @@
     "aad": "ern:1.0:01HXY00000000000000000000S"
   },
   "behavior": {
-    "tip_personality": "sensual",
+    "tip_personality": "slow_warm",
     "affinity_priors": { "warmth": 0.7, "trust": 0.5, "intrigue": 0.6, "intimacy": 0.4, "patience": 0.8, "tension": 0.4 }
   },
   "compliance": {
