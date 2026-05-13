@@ -86,28 +86,37 @@ Collection-creation sub-flow (runs once per collection, not per mint):
 
 The canonical `SaleOrder` layout MUST match `eros-marketplace-solana::sale_order::SaleOrder` byte-for-byte. v0.2 of that program defines it as 120 bytes: `asset_id(32) + collection(32) + seller_wallet(32) + price_lamports(8) + listing_nonce(8) + expires_at(8)`. The svc consumes the program's `SaleOrder` struct directly via `cargo add eros-marketplace-solana` — no manual mirror.
 
+**Who submits what:** svc holds no end-user keys. For both listing and cancellation, the seller's wallet pays gas, signs, and submits. svc's role is to prepare instruction payloads, verify the off-chain canonical signature, watch for tx confirmation, and gate visibility in the catalog. This also keeps `ListingState` PDA rent payable to the seller on cancel.
+
 Listing flow:
 
 ```
 client → POST /listings/quote { asset_id, price_lamports, expires_at }
-       ← svc returns { canonical_bytes (hex), listing_nonce, sale_order_fields }
-                     [svc reserved a fresh nonce from a Postgres sequence]
+       ← svc reserves a fresh nonce from a Postgres sequence, returns
+         { canonical_bytes (hex), listing_nonce, sale_order_fields,
+           set_listing_quote_ix, delegate_leaf_ix }
+                     [the two ix payloads are unsigned, ready to compose]
 
-client → wallet signs ed25519 over canonical_bytes
-       → POST /listings { ...sale_order_fields, seller_signature }
-       ← svc verifies sig, persists listing as 'pending_chain'
-       → svc calls set_listing_quote(nonce) on-chain as the listing publisher
-       ← on confirm, listing flips to 'active'; visible in catalog
+client → wallet builds tx [set_listing_quote_ix, delegate_leaf_ix],
+         signs ed25519 over canonical_bytes (off-chain, separately),
+         submits the tx to RPC
+       → POST /listings { sale_order_fields, seller_signature, tx_signature }
+       ← svc verifies ed25519 signature; persists listing as 'pending_chain'
+         keyed by tx_signature
+       ← Helius webhook on tx_signature → state moves to 'active'; visible in catalog
 ```
 
 Cancel flow:
 
 ```
-seller → POST /listings/:id/cancel  → svc submits cancel_listing on-chain
-       → on confirm, listing.state = 'cancelled'
+seller → POST /listings/:id/cancel/prepare
+       ← svc returns { cancel_listing_ix }
+seller → wallet signs + submits cancel_listing tx
+       → POST /listings/:id/cancel/confirm { tx_signature }
+       ← svc records tx_signature; webhook flips listings.state to 'cancelled'
 ```
 
-The seller's bubblegum-leaf-delegate step (delegating to the program PDA) is the seller's responsibility in the same wallet flow as signing. The svc's UI/SDK helper composes the two as one transaction to the seller's wallet.
+(`set_listing_quote` and `cancel_listing` are not signed by svc. The only on-chain ix svc submits with its own keypair is `register_collection` — admin-only, behind KMS.)
 
 ### 4.3 Indexer / reconciler (chain → svc DB → engine notify)
 
@@ -187,9 +196,10 @@ All `/listings/*`, `/mint/*`, `/personas/*` end-user routes require `Authorizati
 |---|---|---|
 | `POST` | `/mint/draft` | Submit `PersonaDraft` JSON + image bytes (multipart). Returns `mint_job_id`. |
 | `GET` | `/mint/jobs/:id` | Poll mint state machine. Returns current `state` + `asset_id` if minted. |
-| `POST` | `/listings/quote` | Reserve a `listing_nonce` and get canonical SaleOrder bytes to sign. |
-| `POST` | `/listings` | Submit signed SaleOrder + signature. svc verifies and pushes on-chain. |
-| `POST` | `/listings/:id/cancel` | Cancel an owned listing. |
+| `POST` | `/listings/quote` | Reserve a `listing_nonce`; return canonical SaleOrder bytes + unsigned `set_listing_quote` + `delegate_leaf` ix payloads for the seller's wallet to sign. |
+| `POST` | `/listings` | Submit signed SaleOrder + seller signature + the seller's `tx_signature` for the on-chain ix bundle. svc verifies sig + watches webhook for confirmation. |
+| `POST` | `/listings/:id/cancel/prepare` | Return an unsigned `cancel_listing` ix payload. |
+| `POST` | `/listings/:id/cancel/confirm` | Record the seller-submitted `tx_signature`; webhook flips state. |
 | `GET` | `/me/owned` | List asset_ids the caller's wallet owns (joined with manifest preview). |
 | `GET` | `/me/listings` | List the caller's listings, any state. |
 
@@ -253,7 +263,7 @@ Each decision below is an explicit choice. The reasoning is captured so future-y
 | 5 | Auth = Supabase JWT (`AuthValidator` trait) | Same identity layer as engine | Other IdPs supported by impl-ing the trait |
 | 6 | Pinner default = Irys (Bundlr successor) | Native to Solana, low-friction billing in SOL | web3.storage or local-stub for tests; trait abstraction makes swap trivial |
 | 7 | Moderation = stub trait | Content policy is a product decision, not a platform decision; closed-source downstream plugs in real classifiers | Real impl ships as separate crate downstream |
-| 8 | svc does NOT submit buy tx | No buyer key custody risk; matches `eros-marketplace-solana` design where buyer composes the 2-ix tx | If we ever want sponsored gas, this changes — but `Ed25519Program` precompile forces buyer-built tx anyway |
+| 8 | svc does NOT submit any end-user tx (buy / set_listing_quote / cancel_listing) | No buyer or seller key custody; svc only prepares ix payloads and watches for confirmation. The only ix svc submits is `register_collection` (admin, behind KMS) | If we ever want sponsored gas, this changes — but `Ed25519Program` precompile forces buyer-built tx anyway for purchase |
 | 9 | Indexer = Helius webhook + DAS pull | v0.1 cost / complexity floor | Self-hosted Geyser-based indexer if Helius spend becomes the gate |
 | 10 | DB is cache; chain is truth | Recoverable from chain via DAS at any point | Don't add fields the chain doesn't know about (e.g., "favorited_at" — that's a different service) |
 | 11 | `core` crate consumes `eros-marketplace-solana` program crate directly | SaleOrder canonical layout is the program's; manually mirroring it caused the v0.1.1 → v0.2 break | If we ever fork the program, this needs a feature-flagged stub |
@@ -268,7 +278,7 @@ Each phase is independently shippable, independently testable, and leaves the tr
 |---|---|---|
 | **P1 — Bootstrap** | workspace skeleton, sqlx migrations, Anchor client, admin CLI for `register_collection` | CLI registers a devnet collection end-to-end; CI is green |
 | **P2 — Mint pipeline** | `/mint/draft` → KMS → ciphertext store → Irys pin → Bubblegum `mint_v2`. Idempotent state machine. | Can take a `PersonaDraft` JSON to an `asset_id` on devnet |
-| **P3 — Listings** | `/listings/quote`, `/listings`, `/listings/:id/cancel`, `GET /listings` catalog. SaleOrder verify + `set_listing_quote` / `cancel_listing` mirror. | `eros-engine-web`'s `useMarketplace()` swaps from `placeholderListings` to `$fetch('/api/marketplace/listings')` against this service |
+| **P3 — Listings** | `/listings/quote` (returns unsigned ix payloads), `/listings` (verify off-chain sig + watch seller tx), `/listings/:id/cancel/{prepare,confirm}`, `GET /listings` catalog. | `eros-engine-web`'s `useMarketplace()` swaps from `placeholderListings` to `$fetch('/api/marketplace/listings')` against this service |
 | **P4 — Indexer** | Helius webhook receive + dedup + replay; DAS hourly reconcile job; engine ownership push | A purchase on devnet flips `listings.state` and the buyer can chat with the persona in `eros-engine` |
 | **P5 — Admin** | takedown, moderation queue read API, royalty audit endpoint, dead-job inspection | Closed-source downstream can begin building real moderation against this surface |
 
@@ -283,7 +293,7 @@ Sequencing rationale: P1 unlocks chain calls; P2 produces something to list; P3 
 | **Webhook replay or missed delivery** | Dedup by `tx_signature` in `webhook_events`. Hourly DAS reconcile catches anything the webhook missed. Alert on drift > 3 cycles. |
 | **KMS decryption latency on the chat hot path** | The engine decrypts directly via the same KMS provider. svc only holds plaintext during mint (one-shot, async). |
 | **Concurrent writes to a listing row** | `listings.listing_nonce` is `UNIQUE`; the Postgres sequence guarantees nonce uniqueness; on-chain `set_listing_quote` accepts only the current nonce. |
-| **Listing pushed on-chain but DB save fails** | Idempotent write: re-run reconciles. `set_listing_quote` is idempotent by nonce, so a retry can't double-list. |
+| **Seller submits the on-chain tx but the follow-up `POST /listings` to svc never lands** | The DAS reconciler (P4) picks up the on-chain `ListingState` PDA and back-fills `listings` from chain. svc reserves a nonce on `/listings/quote` but only commits the row when both the canonical signature is verified and the seller-submitted tx is observed. Orphan nonces are reclaimed by a janitor job. |
 | **Mint job stuck mid-state** | Each transition is a function `(state, payload) → next_state`; jobs that exceed `retry_count` land in `/admin/jobs/dead`. |
 | **Admin key compromise** | Admin keypair lives behind KMS; svc requests a temporary signer. `register_collection` is the only admin ix in the on-chain program; blast radius is bounded. |
 
