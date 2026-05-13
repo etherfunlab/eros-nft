@@ -238,10 +238,10 @@ This design depends on `eros-engine` exposing an ownership surface that does not
 | Engine surface | Purpose |
 |---|---|
 | Table `engine.persona_ownership(asset_id, persona_id, owner_wallet, updated_at)` | Mirror of marketplace ownership, used at chat-gating time. |
-| `POST /comp/internal/ownership/upsert` (server-to-server) | Idempotent upsert by `asset_id`. Called by svc on every webhook-confirmed transfer. Authenticated via a shared HMAC secret distinct from end-user JWTs. |
-| `GET /comp/internal/ownership/since?cursor=...` (server-to-server) | Pull endpoint svc can use to verify engine has caught up; also lets engine pull from svc on a schedule for self-healing. |
+| `POST /internal/ownership/upsert` (server-to-server) | Idempotent upsert by `asset_id`. Called by svc on every webhook-confirmed transfer. Authenticated via a shared HMAC secret distinct from end-user JWTs. Note: mounted at the engine's URL root, **not** under `/comp/*` — `/comp/*` is the user-facing chat surface; s2s routes live at the top-level `/internal/*` namespace, symmetric to svc's `/internal/webhooks/helius`. |
+| `GET /internal/ownership/since?cursor=...` (server-to-server) | Pull endpoint svc uses to verify engine has caught up; also lets engine pull from svc on a schedule for self-healing. |
 | Gate on `POST /comp/chat/start` | Reject if the caller's bound wallet does not match `engine.persona_ownership.owner_wallet` for the requested persona. Today `/comp/chat/start` has no ownership gate. |
-| New env var `MARKETPLACE_SVC_URL` and `MARKETPLACE_SVC_INTERNAL_SECRET` | Allow engine to call svc back during the pull-side reconciliation. |
+| New env vars `MARKETPLACE_SVC_URL` and `MARKETPLACE_SVC_S2S_SECRET` | Allow engine to call svc back during the pull-side reconciliation. |
 
 These changes ship as a coordinated PR in `eros-engine`, gated on the svc reaching P4. Until then, svc maintains the ownership truth in its own DB; the engine's existing access model (Supabase JWT + persona genome activeness) remains in effect.
 
@@ -296,7 +296,7 @@ Plaintext prompt exists exactly once — in the mint pipeline, between `prompt_e
 
 ## 5. Crate layout
 
-New repo at `/Users/enriquephlin/dev-local/oss-eros/eros-marketplace-svc/`. Mirrors the proven `eros-engine` 4-crate split (this is the 6-crate variant — extracting `chain` and `pinner` for testability since both have non-trivial external surface).
+New repo at `/Users/enriquephlin/dev-local/oss-eros/eros-marketplace-svc/`. Mirrors the proven `eros-engine` 4-crate split (this is the 7-crate variant — extracting `chain`, `pinner`, and `moderation` for testability and trait stability; all three have non-trivial external surface or swappable impls).
 
 ```
 eros-marketplace-svc/
@@ -312,6 +312,15 @@ eros-marketplace-svc/
 │   │                                 # trait ChainClient hides RPC for testability.
 │   ├── eros-marketplace-svc-pinner/  # trait Pinner { pin_json(bytes) -> uri; pin_image(bytes) -> uri; }
 │   │                                 # impls: irys (default), web3-storage, local-stub
+│   ├── eros-marketplace-svc-moderation/  # trait Moderator {
+│   │                                     #   async fn review(draft: &PersonaDraft,
+│   │                                     #     image: &[u8]) -> ModerationVerdict;
+│   │                                     # }
+│   │                                     # enum ModerationVerdict { Allow,
+│   │                                     #   Flag { reason, evidence }, Block { reason } }
+│   │                                     # v0.1 impl: AllowAll (default). Real classifier
+│   │                                     # is a separate downstream crate; trait shape
+│   │                                     # frozen in v0.1 so swap is impl-only.
 │   ├── eros-marketplace-svc-store/   # sqlx Postgres, schema = 'marketplace'.
 │   └── eros-marketplace-svc-server/  # axum + OpenAPI/Scalar + Helius webhook handler.
 │                                     # Not published to crates.io; image to ghcr.io.
@@ -324,7 +333,7 @@ eros-marketplace-svc/
 
 Workspace `Cargo.toml` mirrors eros-engine's: `resolver = "3"`, `edition = "2024"`, `rust-version = "1.85"`, `license = "Apache-2.0"`.
 
-Library crates `eros-marketplace-svc-core`, `-kms`, `-chain`, `-pinner`, `-store` get published to crates.io so closed-source downstream can depend on them. `-server` stays unpublished, shipped only as a Docker image to `ghcr.io/etherfunlab/eros-marketplace-svc`.
+Library crates `eros-marketplace-svc-core`, `-kms`, `-chain`, `-pinner`, `-store`, `-moderation` get published to crates.io so closed-source downstream can depend on them. `-server` stays unpublished, shipped only as a Docker image to `ghcr.io/etherfunlab/eros-marketplace-svc`. The publishing decision per crate may be revisited per the implementation plan — premature crates.io commitment creates compatibility obligations.
 
 ## 6. HTTP API surface (v0.1)
 
@@ -453,7 +462,7 @@ Each decision below is an explicit choice. The reasoning is captured so future-y
 | 4 | KMS default = supabase-vault | Engine already uses Supabase; cheapest to operate at v0.1 scale | AWS KMS for prod-scale; trait is unchanged |
 | 5 | Auth = Supabase JWT (`AuthValidator` trait) | Same identity layer as engine | Other IdPs supported by impl-ing the trait |
 | 6 | Pinner default = Irys (Bundlr successor) | Native to Solana, low-friction billing in SOL | web3.storage or local-stub for tests; trait abstraction makes swap trivial |
-| 7 | Moderation = stub trait | Content policy is a product decision, not a platform decision; closed-source downstream plugs in real classifiers | Real impl ships as separate crate downstream |
+| 7 | Moderation = stub trait, **not enforced** in v0.1. Mint pipeline calls `Moderator::review(&PersonaDraft, &image_bytes) -> ModerationVerdict` but the default impl always returns `Allow`. Real classifier comes later. | Ship-first product posture (cf. Grok at launch): a moderation gate that takes weeks to tune blocks every other piece of work behind it. Pre-committing to the trait now means the real impl drops in without touching the pipeline state machine. | When a real classifier ships, replace only the impl; the `moderated` pipeline state and its position in the state machine do not change. |
 | 8 | svc submits the **admin-gated** on-chain ix as itself (`set_listing_quote`, `init_registries`, `register_collection`, `housekeeping_clear`); seller submits `cancel_listing`; buyer submits the purchase tx. svc never holds end-user keys. | The program's `has_one = admin` constraint on those four ix means svc is the only entity that can submit them. Buyer key custody is impossible because the Ed25519Program precompile forces a buyer-built tx | If sponsored gas for buyers becomes a goal, that's an orthogonal change; the admin-gated svc submission stays. |
 | 9 | Indexer = Helius webhook + DAS pull | v0.1 cost / complexity floor | Self-hosted Geyser-based indexer if Helius spend becomes the gate |
 | 10 | DB is cache; chain is truth | Recoverable from chain via DAS at any point | Don't add fields the chain doesn't know about (e.g., "favorited_at" — that's a different service) |
@@ -497,7 +506,7 @@ Sequencing rationale: P1 unlocks chain calls and admin signing; P2 produces purc
 - Auction / Dutch auction listings.
 - Multi-edition cNFTs.
 - Cross-chain marketplaces.
-- Real moderation classifier — stays in closed-source downstream.
+- Real moderation classifier — stays in closed-source downstream. v0.1 ships with `AllowAll`. The `Moderator` trait shape (§5) is frozen now so the future swap is impl-only.
 - Sponsored gas for buyers.
 - Push / email notifications.
 - Mobile clients.
