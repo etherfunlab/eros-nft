@@ -70,9 +70,17 @@ draft_submitted
     → manifest_assembled       (eros-nft crate PersonaManifest, prompt_ciphertext_ref populated)
     → manifest_pinned          (Irys / Arweave / web3.storage; URI recorded)
     → collection_resolved      (use existing or create new Core collection)
-    → cnft_minted              (Bubblegum V2 mint_v2 against the collection;
-                                asset_id captured from mint log; DAS lookup
-                                by (tree, leaf_index, tx_signature) as fallback)
+    → cnft_minted              (Bubblegum V2 mint_v2 against the collection.
+                                asset_id captured by:
+                                  primary: derive asset_id from
+                                    (merkle_tree_pubkey, leaf_index) using
+                                    mpl_bubblegum::utils::get_asset_id;
+                                    leaf_index comes from the mint tx's
+                                    return data and from the tree config's
+                                    num_minted counter delta.
+                                  fallback: DAS getAssetsByGroup against the
+                                    collection within an hourly reconcile
+                                    window if return data is unparseable.)
     → registries_initialized   (svc-as-admin calls init_registries(asset_id,
                                 royalty_recipient, royalty_bps,
                                 platform_fee_recipient, platform_fee_bps,
@@ -83,7 +91,19 @@ draft_submitted
     → indexed                  (personas + ownership rows populated)
 ```
 
-Each transition writes to `mint_jobs.state` along with the step's output (tx_signature, URI, sha256, or asset_id as applicable). Retries reconcile against recorded output rather than recomputing — pinning, minting, and `init_registries` each produce non-deterministic side effects that cannot be re-derived from inputs alone.
+**Idempotency model:** every `mint_jobs` row carries an `idempotency_key` (client-supplied UUID at draft submission) and each non-deterministic step records its output **before** transitioning state:
+
+| Step | Recorded output |
+|---|---|
+| `prompt_encrypted` | `wrapped_dek`, `nonce_bytes`, `ciphertext_sha256` |
+| `ciphertext_stored` | `ciphertext_uri` |
+| `manifest_pinned` | `manifest_uri`, `manifest_sha256` |
+| `cnft_minted` | `mint_tx_signature`, `asset_id`, `merkle_tree`, `leaf_index` |
+| `registries_initialized` | `init_registries_tx_signature` |
+
+Retries reconcile by reading the recorded output and verifying the chain/storage state matches it. If the recorded `mint_tx_signature` finalized successfully, the step is treated as done without re-submitting. Pinning, minting, and `init_registries` each produce non-deterministic side effects that cannot be re-derived from inputs alone, so the recorded output is the authoritative source.
+
+The state machine is single-writer per `mint_job` (held by row-level lock during a transition) to prevent two workers racing to advance the same job. Workers that crash mid-step are recovered by a janitor process that finds rows in non-terminal states with `updated_at` older than a step's expected duration and unlocks them.
 
 Collection-creation sub-flow (runs once per collection, not per mint):
 
@@ -136,30 +156,143 @@ seller → wallet signs + submits cancel_listing tx (seller is the Signer
 
 ### 4.3 Indexer / reconciler (chain → svc DB → engine notify)
 
-Two paths to ensure ground truth is the chain, not the DB:
+Two paths to ensure ground truth is the chain, not the DB.
 
 **Webhook (primary, low-latency):**
 
 ```
 Helius webhook → POST /internal/webhooks/helius
-              → dedup by tx_signature (marketplace.webhook_events table)
-              → for execute_purchase: update listing.purchased_at, ownership
-              → for Bubblegum transfer: update ownership table
+              → verify HMAC signature header against shared secret
+                (constant-time compare on the raw body)
+              → reject if request timestamp skew > 5 minutes
+              → dedup by (tx_signature, instruction_index) into
+                marketplace.webhook_events (PK enforces idempotency)
+              → parse program event logs, not just tx-level info:
+                  • execute_purchase emits a Purchase event with
+                    {asset_id, buyer, seller, price, royalty, platform_fee}
+                  • Bubblegum V2 emits LeafSchema updates on transfer
+              → for purchase: update listings.state='sold' + ownership
+              → for transfer (non-purchase, e.g., direct send): update
+                ownership only
               → enqueue engine-notify job: persona_id ↔ new_owner_wallet
 ```
 
-**DAS pull (fallback, eventual consistency):**
+A shared secret alone is insufficient. Helius signs the webhook body; svc verifies that signature plus a timestamp tolerance to block replay outside the 5-minute window. The `(tx_signature, instruction_index)` dedup key handles in-window replays and ensures multi-ix txs (e.g., the Ed25519 precompile + execute_purchase pair) don't double-fire.
+
+**Reconciler (fallback, eventual consistency):**
+
+DAS and `getProgramAccounts` are not interchangeable. DAS indexes asset state — owners, manifests, collection membership. It does **not** index marketplace-program-owned PDAs like `ListingState`. The reconciler therefore runs two complementary jobs:
 
 ```
-hourly job → for each managed collection:
-  → fetch all assets via Helius DAS getAssetsByGroup
-  → diff against marketplace.ownership table
-  → reconcile any drift; alert on persistent drift > 3 cycles
+asset reconciler (hourly):
+  for each managed collection:
+    → DAS getAssetsByGroup(collection)
+    → diff against marketplace.ownership; reconcile drift
+
+listing reconciler (every 5 min):
+  → RPC getProgramAccounts(eros_marketplace_solana_pid,
+       filters = [
+         { dataSize: 8 + ListingState::INIT_SPACE },
+         { memcmp: { offset: 8, bytes: discriminator(ListingState) } },
+       ])
+  → for each ListingState PDA, parse (asset_id, seller_wallet,
+       active_nonce, last_seen_nonce)
+  → diff against marketplace.listings: back-fill any pending_chain rows
+       whose tx confirmed but whose webhook was lost; flip any
+       listings.state to match chain reality
 ```
+
+Drift exceeding 3 consecutive reconciler cycles fires an alert. `getProgramAccounts` on a marketplace-scale program is bounded — `ListingState` count is at most one per (asset, seller) ever-listed, which stays small.
 
 **Engine notification:**
 
-The engine is the source of chat access gating. Owners can chat; non-owners can't. The svc pushes ownership changes to the engine via a thin HTTP call (`POST /comp/internal/persona-ownership`, server-to-server auth). If the engine call fails, the engine's own background job pulls from svc on a schedule — both sides converge.
+The engine is the source of chat access gating. Owners can chat; non-owners can't. svc pushes ownership changes to the engine; engine reads them from its own DB at gating time. If the push fails, an engine-side pull job converges with svc on a schedule. The required engine changes are listed in §4.5 — they do not exist in `eros-engine` today and must ship as a coordinated change.
+
+### 4.4 Wallet binding (identity ↔ wallet ownership)
+
+A Supabase JWT proves "this is user_id `U`." It does not prove "user `U` controls wallet `W`." Without binding, any signed-in user could claim to be selling any asset. svc therefore maintains a `wallet_links` table populated by an on-demand challenge flow:
+
+```
+client → POST /me/wallets/challenge { wallet_pubkey }
+       ← svc returns { challenge_nonce, expires_at }
+         [stored in wallet_link_challenges keyed by (user_id, wallet_pubkey)]
+
+client → wallet signs `eros-marketplace-svc:link:{wallet_pubkey}:{challenge_nonce}`
+       → POST /me/wallets/confirm { wallet_pubkey, signature }
+       ← svc verifies ed25519 sig over the canonical challenge string
+       → INSERT INTO wallet_links (user_id, wallet_pubkey)
+            ON CONFLICT (wallet_pubkey) DO NOTHING
+         [wallet_pubkey is globally UNIQUE — one wallet maps to at most
+          one user_id; the same user MAY link multiple wallets]
+       ← returns linked=true
+```
+
+Every operation that names a `seller_wallet` (mint creator, listing creator, cancel) checks `wallet_links(user_id, seller_wallet)` exists for the JWT's user. Mismatch → 403 with `wallet_not_linked`. This is enforcement, not best effort; without it the access model is broken.
+
+Unlinking is supported (`DELETE /me/wallets/:pubkey`) but does not invalidate existing on-chain listings — those remain under that wallet's control on-chain regardless of svc's view. svc only stops accepting new operations for that pair.
+
+### 4.5 Required eros-engine coordinated changes
+
+This design depends on `eros-engine` exposing an ownership surface that does not exist today. The engine must add the following before P4 ships:
+
+| Engine surface | Purpose |
+|---|---|
+| Table `engine.persona_ownership(asset_id, persona_id, owner_wallet, updated_at)` | Mirror of marketplace ownership, used at chat-gating time. |
+| `POST /comp/internal/ownership/upsert` (server-to-server) | Idempotent upsert by `asset_id`. Called by svc on every webhook-confirmed transfer. Authenticated via a shared HMAC secret distinct from end-user JWTs. |
+| `GET /comp/internal/ownership/since?cursor=...` (server-to-server) | Pull endpoint svc can use to verify engine has caught up; also lets engine pull from svc on a schedule for self-healing. |
+| Gate on `POST /comp/chat/start` | Reject if the caller's bound wallet does not match `engine.persona_ownership.owner_wallet` for the requested persona. Today `/comp/chat/start` has no ownership gate. |
+| New env var `MARKETPLACE_SVC_URL` and `MARKETPLACE_SVC_INTERNAL_SECRET` | Allow engine to call svc back during the pull-side reconciliation. |
+
+These changes ship as a coordinated PR in `eros-engine`, gated on the svc reaching P4. Until then, svc maintains the ownership truth in its own DB; the engine's existing access model (Supabase JWT + persona genome activeness) remains in effect.
+
+### 4.6 KMS design
+
+The spec layer (`spec/v1.0/04-encrypted-prompt-ref.md`) requires AES-256-GCM with `aad = persona_id`. This section pins down everything the spec deliberately leaves to implementation.
+
+**Envelope encryption:**
+
+```
+plaintext_prompt
+   → DEK (32 bytes, freshly generated per persona, never reused)
+   → AES-256-GCM(plaintext_prompt, dek, nonce, aad=persona_id) → ciphertext + tag
+   → KEK.wrap(DEK) → wrapped_dek            [KEK lives in KMS, never exits]
+   → store (wrapped_dek, ciphertext, ciphertext_sha256) in marketplace.persona_keys
+   → zero plaintext_prompt + DEK buffers immediately after wrap completes
+```
+
+**Storage:**
+
+```
+persona_keys (persona_id PK, kms_key_ref TEXT, wrapped_dek BYTEA,
+              ciphertext_uri TEXT, ciphertext_sha256 TEXT,
+              nonce_bytes BYTEA, alg ENUM('AES-256-GCM'),
+              created_at, kek_version INT)
+```
+
+The unwrapped DEK is held in process memory only for the duration of one mint or one decrypt request, with a `Drop` impl that zeroes the buffer. No DEK is logged, written to disk, or sent over the wire wrapped or otherwise.
+
+**Authorization:**
+
+| Caller | What it can do | How it's authenticated |
+|---|---|---|
+| svc mint pipeline | wrap a fresh DEK with the current KEK | service-account-bound KMS IAM (encrypt-only) |
+| engine chat hot path | unwrap a stored DEK to decrypt the prompt for an active chat | engine-bound KMS IAM (decrypt-only, separate principal) |
+| anything else | nothing | denied at the KMS policy layer, not at the application layer |
+
+The svc has **no** decrypt permission. The engine has **no** wrap permission. A compromise of either service cannot do the other's job. The engine's existing `EXPOSE_AFFINITY_DEBUG`-style env-gate philosophy applies: production deploys never have both permissions on one principal.
+
+**Key rotation:**
+
+- **KEK rotation:** scheduled (e.g., quarterly). Triggers an offline re-wrap job: read each `persona_keys.wrapped_dek`, unwrap with old KEK, wrap with new KEK, write back with `kek_version` incremented. Ciphertext is untouched. No service interruption.
+- **DEK rotation:** not supported. Rotating a DEK requires re-encrypting the ciphertext, which would break `ciphertext_sha256` recorded in the on-chain `PersonaManifest` reference. If a persona's DEK is suspected compromised, the only remediation is takedown of that persona (admin path), not rotation.
+
+**Audit:**
+
+Every KMS call (wrap, unwrap, rotation) records `(caller_principal, persona_id, ix='wrap'|'unwrap'|'rewrap', kek_version, success, error_class, occurred_at)` to `marketplace.kms_audit`. Alerts fire on: failed unwrap, unwrap by an unexpected principal, wrap volume spike.
+
+**Plaintext deletion:**
+
+Plaintext prompt exists exactly once — in the mint pipeline, between `prompt_encrypted` and the next state. The struct holding it implements `Zeroize + ZeroizeOnDrop` (the `zeroize` crate). It is never serialized to logs, debug output, or persistence. If a mint job is paused mid-pipeline at `prompt_encrypted`, the wrapped DEK + ciphertext live in DB; the plaintext is already gone.
 
 ## 5. Crate layout
 
@@ -216,14 +349,18 @@ All `/listings/*`, `/mint/*`, `/personas/*` end-user routes require `Authorizati
 | `POST` | `/listings` | Submit signed SaleOrder + seller signature. svc verifies sig + ownership + watermark, then submits `set_listing_quote` on-chain as admin and watches the webhook. |
 | `POST` | `/listings/:id/cancel/prepare` | Return an unsigned `cancel_listing` ix payload (the program requires the seller as `Signer`, so seller must submit). |
 | `POST` | `/listings/:id/cancel/confirm` | Record the seller-submitted `tx_signature`; webhook flips state. |
-| `GET` | `/me/owned` | List asset_ids the caller's wallet owns (joined with manifest preview). |
+| `GET` | `/me/owned` | List asset_ids the caller's bound wallet(s) own (joined with manifest preview). |
 | `GET` | `/me/listings` | List the caller's listings, any state. |
+| `POST` | `/me/wallets/challenge` | Issue a one-shot wallet-link challenge nonce. See §4.4. |
+| `POST` | `/me/wallets/confirm` | Confirm wallet ownership with the signed challenge. |
+| `GET` | `/me/wallets` | List linked wallets. |
+| `DELETE` | `/me/wallets/:pubkey` | Unlink a wallet (does not affect on-chain state). |
 
 ### Internal / admin
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/internal/webhooks/helius` | Helius webhook target. Signed with shared secret. |
+| `POST` | `/internal/webhooks/helius` | Helius webhook target. Verifies HMAC signature header + timestamp tolerance (±5 min); dedupes by `(tx_signature, instruction_index)`. |
 | `POST` | `/admin/collections` | Create + register a new Core collection (admin only). |
 | `POST` | `/admin/listings/:id/takedown` | Force-remove a listing from catalog (e.g., content violation). |
 | `GET` | `/admin/jobs/dead` | List failed mint jobs that exceeded retry budget. |
@@ -238,15 +375,28 @@ Concise sketch; column types and indexes finalized in the plan.
 collections          (collection_pubkey PK, name, created_at, registered_at,
                       tree_config_pubkey, merkle_tree_pubkey)
 
-mint_jobs            (id PK, creator_user_id, state ENUM, draft_jsonb,
-                      persona_id, manifest_jsonb, manifest_uri, ciphertext_uri,
-                      ciphertext_sha256, asset_id NULL, collection_pubkey,
-                      retry_count, last_error, created_at, updated_at)
+mint_jobs            (id PK, idempotency_key UUID UNIQUE NOT NULL,
+                      creator_user_id, creator_wallet, state ENUM,
+                      draft_jsonb, persona_id, manifest_jsonb,
+                      manifest_uri, manifest_sha256, ciphertext_uri,
+                      ciphertext_sha256, nonce_bytes BYTEA, wrapped_dek BYTEA,
+                      mint_tx_signature, init_registries_tx_signature,
+                      merkle_tree, leaf_index, asset_id NULL,
+                      collection_pubkey, retry_count, last_error,
+                      locked_by, locked_at,
+                      created_at, updated_at)
 
 personas             (persona_id PK, asset_id UNIQUE, collection_pubkey FK,
                       manifest_uri, manifest_jsonb, name, traits_jsonb,
                       nsfw_flag, created_at)
                      # populated when mint_jobs transitions to 'indexed'
+
+persona_keys         (persona_id PK FK personas.persona_id, kms_key_ref TEXT,
+                      wrapped_dek BYTEA, nonce_bytes BYTEA,
+                      ciphertext_uri TEXT, ciphertext_sha256 TEXT,
+                      alg ENUM('AES-256-GCM'), kek_version INT,
+                      created_at)
+                     # AES-256-GCM envelope, AAD = persona_id. See §4.6.
 
 listings             (id PK, asset_id FK personas.asset_id,
                       seller_wallet, price_lamports, listing_nonce,
@@ -261,8 +411,9 @@ listings             (id PK, asset_id FK personas.asset_id,
 ownership            (asset_id PK FK personas.asset_id,
                       owner_wallet, last_transfer_tx_sig, last_transfer_at)
 
-webhook_events       (tx_signature PK, source ENUM('helius','das_reconcile'),
-                      event_type, raw_jsonb, processed_at NULL, error_msg NULL)
+webhook_events       (tx_signature, instruction_index, source ENUM('helius','reconcile'),
+                      event_type, raw_jsonb, processed_at NULL, error_msg NULL,
+                      PRIMARY KEY (tx_signature, instruction_index))
 
 listing_nonce_watermarks (asset_id, seller_wallet, last_issued_nonce u64,
                           updated_at,
@@ -270,9 +421,25 @@ listing_nonce_watermarks (asset_id, seller_wallet, last_issued_nonce u64,
                      # strict-monotonic forever; matches the on-chain
                      # ListingState.last_seen_nonce semantics. Nonces are
                      # never reclaimed or reused.
+
+wallet_links         (user_id, wallet_pubkey, linked_at,
+                      PRIMARY KEY (user_id, wallet_pubkey),
+                      UNIQUE (wallet_pubkey))
+                     # global UNIQUE on wallet_pubkey — one wallet maps to
+                     # at most one user_id; one user MAY link many wallets.
+
+wallet_link_challenges (user_id, wallet_pubkey, challenge_nonce, expires_at,
+                        consumed_at NULL,
+                        PRIMARY KEY (user_id, wallet_pubkey))
+                     # one-shot; consumed_at set on successful confirm.
+
+kms_audit            (id PK, caller_principal, persona_id, ix ENUM('wrap','unwrap','rewrap'),
+                      kek_version, success bool, error_class, occurred_at)
+                     # alerts: failed unwrap, unwrap by unexpected principal,
+                     # wrap volume spike. See §4.6.
 ```
 
-`personas`, `ownership`, and `listings.state` are derived views of the chain. The webhook + DAS jobs maintain them. Anything else (drafts, mint jobs, signatures) is svc-native.
+`personas`, `ownership`, and `listings.state` are derived views of the chain. The webhook + reconciler jobs maintain them. `wallet_links`, `mint_jobs`, `persona_keys`, and `kms_audit` are svc-native and have no on-chain mirror.
 
 ## 8. Decisions and assumptions
 
@@ -300,13 +467,13 @@ Each phase is independently shippable, independently testable, and leaves the tr
 
 | Phase | Scope | Definition of done |
 |---|---|---|
-| **P1 — Bootstrap** | workspace skeleton, sqlx migrations, Anchor client, admin CLI for `register_collection` | CLI registers a devnet collection end-to-end; CI is green |
-| **P2 — Mint pipeline** | `/mint/draft` → KMS → ciphertext store → Irys pin → Bubblegum `mint_v2`. Idempotent state machine. | Can take a `PersonaDraft` JSON to an `asset_id` on devnet |
-| **P3 — Listings** | `/listings/quote` (returns unsigned ix payloads), `/listings` (verify off-chain sig + watch seller tx), `/listings/:id/cancel/{prepare,confirm}`, `GET /listings` catalog. | `eros-engine-web`'s `useMarketplace()` swaps from `placeholderListings` to `$fetch('/api/marketplace/listings')` against this service |
-| **P4 — Indexer** | Helius webhook receive + dedup + replay; DAS hourly reconcile job; engine ownership push | A purchase on devnet flips `listings.state` and the buyer can chat with the persona in `eros-engine` |
-| **P5 — Admin** | takedown, moderation queue read API, royalty audit endpoint, dead-job inspection | Closed-source downstream can begin building real moderation against this surface |
+| **P1 — Bootstrap** | workspace skeleton, sqlx migrations, Anchor client, admin CLI for `register_collection`, KMS provider trait + supabase-vault impl | CLI registers a devnet collection end-to-end with KMS-wrapped admin key; CI is green |
+| **P2 — Wallet binding + Mint pipeline** | `/me/wallets/*` flow (challenge + confirm + link), `/mint/draft` → KMS envelope → ciphertext store → Irys pin → Bubblegum `mint_v2` → `init_registries`. Idempotent state machine with recorded outputs. | Can take a signed-in user with a linked wallet through a `PersonaDraft` to a purchasable `asset_id` on devnet (registries initialized) |
+| **P3 — Listings** | `/listings/quote` (per-pair monotonic nonce), `/listings` (verify off-chain sig + wallet binding + DAS ownership; svc-as-admin submits `set_listing_quote`), `/listings/:id/cancel/{prepare,confirm}`, `GET /listings` catalog. | `eros-engine-web`'s `useMarketplace()` swaps from `placeholderListings` to `$fetch('/api/marketplace/listings')` against this service |
+| **P4 — Indexer + engine coordination** | Helius webhook (HMAC + timestamp + per-instruction dedup); asset reconciler (DAS hourly); listing reconciler (`getProgramAccounts` every 5 min); engine ownership push. **Requires coordinated PR in `eros-engine` adding the surfaces in §4.5** | A purchase on devnet flips `listings.state`, pushes ownership to engine, and the buyer can `/comp/chat/start` against the bought persona |
+| **P5 — Admin** | takedown, moderation queue read API, royalty audit endpoint, dead-job inspection, KMS audit query | Closed-source downstream can begin building real moderation against this surface |
 
-Sequencing rationale: P1 unlocks chain calls; P2 produces something to list; P3 makes listings real; P4 makes purchases observable; P5 makes the surface operable. Each later phase can be backed out without breaking earlier ones.
+Sequencing rationale: P1 unlocks chain calls and admin signing; P2 produces purchasable assets (wallet binding gates mint creator identity); P3 makes listings real; P4 makes purchases observable and chat-gateable (the engine PR is the critical-path dependency for end-to-end demo); P5 makes the surface operable. Each later phase can be backed out without breaking earlier ones. v0.1 assumes svc-minted assets only — if external Manifest import is later added, P3/P4 can run against pre-existing assets in any order.
 
 ## 10. Risks and mitigations
 
@@ -314,7 +481,9 @@ Sequencing rationale: P1 unlocks chain calls; P2 produces something to list; P3 
 |---|---|
 | **SaleOrder canonical bytes drift from the program** | `core` crate depends on `eros-marketplace-solana` program crate; serialize via the program's `canonical_bytes()`. Never manually mirror the layout. |
 | **Manifest schema drift from `eros-nft` spec** | `core` crate depends on `eros-nft` crate; use `PersonaManifest::validate()`, never reimplement the validator. |
-| **Webhook replay or missed delivery** | Dedup by `tx_signature` in `webhook_events`. Hourly DAS reconcile catches anything the webhook missed. Alert on drift > 3 cycles. |
+| **Webhook replay or missed delivery** | Helius HMAC signature verified on every request; reject if timestamp skew > 5 min. Dedup by `(tx_signature, instruction_index)` in `webhook_events`. The listing reconciler (`getProgramAccounts` every 5 min) catches missed `set_listing_quote` / `cancel_listing` events; the asset reconciler (DAS hourly) catches missed transfers. Alert on drift > 3 cycles. |
+| **Wallet binding bypass** | Without §4.4 enforcement, any signed-in user could mint as someone else's wallet or list someone else's asset. Mitigation: every mint/list path checks `wallet_links(jwt.user_id, requested_wallet)` exists. Plus DAS ownership check at listing time as defense-in-depth. |
+| **KMS principal confusion** | If svc accidentally gets decrypt permission or engine gets wrap permission, a compromise of one service becomes a compromise of both. Mitigation: two separate KMS IAM principals with disjoint policies; deploy pipeline asserts the principal-policy matrix on every release. |
 | **KMS decryption latency on the chat hot path** | The engine decrypts directly via the same KMS provider. svc only holds plaintext during mint (one-shot, async). |
 | **Concurrent writes to the same listing pair** | The watermark table row for `(asset_id, seller_wallet)` is the serialization point — allocation uses `UPDATE ... WHERE last_issued_nonce = $expected RETURNING last_issued_nonce + 1` for optimistic concurrency. On-chain, `set_listing_quote`'s `NonceNotMonotonic` check is the second line of defense. |
 | **svc allocates a nonce on `/listings/quote` but the seller never returns to `/listings`** | The watermark advances regardless — that nonce is burned forever. This is acceptable: the on-chain program treats nonces the same way (strict monotonic, no reclaim). Worst case is a small forward gap in seller's nonce history; no on-chain `ListingState` is ever created for the unused nonce because svc only submits `set_listing_quote` after receiving the signature. |
