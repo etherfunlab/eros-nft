@@ -161,7 +161,7 @@ Two paths to ensure ground truth is the chain, not the DB.
 **Webhook (primary, low-latency):**
 
 ```
-Helius webhook → POST /internal/webhooks/helius
+Helius webhook → POST /webhooks/helius
               → verify HMAC signature header against shared secret
                 (constant-time compare on the raw body)
               → reject if request timestamp skew > 5 minutes
@@ -238,8 +238,8 @@ This design depends on `eros-engine` exposing an ownership surface that does not
 | Engine surface | Purpose |
 |---|---|
 | Table `engine.persona_ownership(asset_id, persona_id, owner_wallet, updated_at)` | Mirror of marketplace ownership, used at chat-gating time. |
-| `POST /internal/ownership/upsert` (server-to-server) | Idempotent upsert by `asset_id`. Called by svc on every webhook-confirmed transfer. Authenticated via a shared HMAC secret distinct from end-user JWTs. Note: mounted at the engine's URL root, **not** under `/comp/*` — `/comp/*` is the user-facing chat surface; s2s routes live at the top-level `/internal/*` namespace, symmetric to svc's `/internal/webhooks/helius`. |
-| `GET /internal/ownership/since?cursor=...` (server-to-server) | Pull endpoint svc uses to verify engine has caught up; also lets engine pull from svc on a schedule for self-healing. |
+| `POST /s2s/ownership/upsert` (server-to-server) | Idempotent upsert by `asset_id`. Called by svc on every webhook-confirmed transfer. Authenticated via a shared HMAC secret distinct from end-user JWTs. Note: mounted at the engine's URL root, **not** under `/comp/*` — `/comp/*` is the user-facing chat surface; s2s routes live at the top-level `/s2s/*` namespace, symmetric to svc's `/webhooks/helius`. |
+| `GET /s2s/ownership/since?cursor=...` (server-to-server) | Pull endpoint svc uses to verify engine has caught up; also lets engine pull from svc on a schedule for self-healing. |
 | Gate on `POST /comp/chat/start` | Reject if the caller's bound wallet does not match `engine.persona_ownership.owner_wallet` for the requested persona. Today `/comp/chat/start` has no ownership gate. |
 | New env vars `MARKETPLACE_SVC_URL` and `MARKETPLACE_SVC_S2S_SECRET` | Allow engine to call svc back during the pull-side reconciliation. |
 
@@ -337,7 +337,7 @@ Library crates `eros-marketplace-svc-core`, `-kms`, `-chain`, `-pinner`, `-store
 
 ## 6. HTTP API surface (v0.1)
 
-All `/listings/*`, `/mint/*`, `/personas/*` end-user routes require `Authorization: Bearer <Supabase JWT>` (same `AuthValidator` trait as `eros-engine`). `/admin/*` and `/internal/*` use separate keys.
+All `/listings/*`, `/mint/*`, `/personas/*` end-user routes require `Authorization: Bearer <Supabase JWT>` (same `AuthValidator` trait as `eros-engine`). `/admin/*` and `/s2s/*` use separate keys.
 
 ### Public (catalog, signed-in browse)
 
@@ -365,11 +365,11 @@ All `/listings/*`, `/mint/*`, `/personas/*` end-user routes require `Authorizati
 | `GET` | `/me/wallets` | List linked wallets. |
 | `DELETE` | `/me/wallets/:pubkey` | Unlink a wallet (does not affect on-chain state). |
 
-### Internal / admin
+### Admin / webhooks
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/internal/webhooks/helius` | Helius webhook target. Verifies HMAC signature header + timestamp tolerance (±5 min); dedupes by `(tx_signature, instruction_index)`. |
+| `POST` | `/webhooks/helius` | Helius webhook target. Verifies HMAC signature header + timestamp tolerance (±5 min); dedupes by `(tx_signature, instruction_index)`. |
 | `POST` | `/admin/collections` | Create + register a new Core collection (admin only). |
 | `POST` | `/admin/listings/:id/takedown` | Force-remove a listing from catalog (e.g., content violation). |
 | `GET` | `/admin/jobs/dead` | List failed mint jobs that exceeded retry budget. |
